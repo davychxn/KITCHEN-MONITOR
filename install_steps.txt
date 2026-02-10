@@ -1,0 +1,41 @@
+For PC:
+
+pip install torch torchvision
+pip install ultralytics  # 用于YOLO
+pip install opencv-python
+pip install numpy pandas matplotlib
+pip install scikit-learn
+pip install tqdm
+
+Or:
+pip install -r requirements_pc.txt
+
+Run:
+python verify_temporal_on_originals.py
+
+
+For PI:
+
+# For Raspberry Pi 5 (ARM64, Python 3.9–3.11)
+pip3 install https://github.com/KumaTea/pytorch-aarch64/releases/download/v2.3.0/torch-2.3.0a0+gitc8f7e6d-cp311-cp311-linux_aarch64.whl
+pip3 install https://github.com/KumaTea/pytorch-aarch64/releases/download/v2.3.0/torchvision-0.18.0a0+gitc8f7e6d-cp311-cp311-linux_aarch64.whl
+
+sudo apt update
+sudo apt install python3-opencv
+
+pip3 install ultralytics numpy pandas matplotlib scikit-learn tqdm
+
+Or:
+pip install -r requirements_pi.txt
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,46 @@
+
+# 1. Check Bluetooth connection status
+bluetoothctl info
+
+# 2. List all paired devices
+bluetoothctl devices
+
+# 3. Check if PipeWire Bluetooth module is installed
+dpkg -l | grep pipewire-pulse
+dpkg -l | grep libspa-0.2-bluetooth
+
+# 4. List sinks again (to confirm Bluetooth is missing)
+pactl list sinks short
+
+sudo apt install libspa-0.2-bluetooth pipewire-audio
+sudo systemctl --user restart pipewire pipewire-pulse
+
+# Disconnect and reconnect
+bluetoothctl disconnect
+bluetoothctl connect <MAC_ADDRESS>
+
+# Check sinks again - Bluetooth should now appear
+pactl list sinks short
+
+
+# Set Bluetooth speaker as default
+pactl set-default-sink bluez_output.E3_6F_60_79_3F_B6.1
+
+# Verify it's default
+pactl get-default-sink
+
+# Test with your MP3
+mpg123 ./assets/sound/kitchenware_1.mp3
+
+
+python test_audio.py
+
+# Add to ~/.bashrc or a startup script
+pactl set-default-sink bluez_output.E3_6F_60_79_3F_B6.1
+
+
+
+
+
+
+
