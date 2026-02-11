@@ -15,6 +15,7 @@ import subprocess
 import threading
 import time
 import sys
+from enum import Enum
 from pathlib import Path
 from picamera2 import Picamera2
 from PIL import Image
@@ -25,6 +26,21 @@ import torchvision.transforms as transforms
 from modules.yolo_detector import KitchenObjectDetector
 from train_classifier_temporal import TemporalStateClassifier
 
+class WareDetect(Enum):
+    WARE_0 = 0
+    WARE_1 = 1
+    WARE_2 = 2
+    WARE_3 = 3
+    WARE_4 = 4
+    WARE_5 = 5
+    WARE_6 = 6
+    WARE_X = 7
+    
+class WareSatus(Enum):
+    NORMAL = 1
+    BOILING = 2
+    SMOKING = 3
+    ON_FIRE = 4
 
 def merge_bboxes_with_outlier_removal(bboxes, threshold_percentile=20):
     """
@@ -61,7 +77,33 @@ def merge_bboxes_with_outlier_removal(bboxes, threshold_percentile=20):
 
 
 class AudioPlayer:
-    def __init__(self):
+    _DETECT_TO_FILE = {
+        WareDetect.WARE_0: "kitchenware_0.mp3",
+        WareDetect.WARE_1: "kitchenware_1.mp3",
+        WareDetect.WARE_2: "kitchenware_2.mp3",
+        WareDetect.WARE_3: "kitchenware_3.mp3",
+        WareDetect.WARE_4: "kitchenware_4.mp3",
+        WareDetect.WARE_5: "kitchenware_5.mp3",
+        WareDetect.WARE_6: "kitchenware_6.mp3",
+        WareDetect.WARE_X: "kitchenware_x.mp3",
+    }
+
+    _STATUS_TO_FILE = {
+        WareSatus.NORMAL: "statues_normal.mp3",
+        WareSatus.BOILING: "statues_boiling.mp3",
+        WareSatus.SMOKING: "statues_smoking.mp3",
+        WareSatus.ON_FIRE: "statues_on-fire.mp3",
+    }
+    
+    _WARE_DETECT_LAST = WareDetect.WARE_0
+    _WARE_DETECT_COUNT = 0
+    _WARE_STATUS_LAST = WareSatus.NORMAL
+    _WARE_STATUS_COUNT = 0
+    
+    _WARE_INFO_THRESHOLD = 0
+
+    def __init__(self, sound_dir: Path):
+        self._sound_dir = sound_dir
         self._queue = queue.Queue(maxsize=1)
         self._backend = self._select_backend()
         self._last_enqueued = None
@@ -79,7 +121,46 @@ class AudioPlayer:
                 return ("mpg123", None)
         return (None, None)
 
-    def _play(self, audio_path: Path):
+    def _resolve_path(self, result: WareDetect | WareSatus) -> Path | None:
+        if isinstance(result, WareDetect):
+            filename = self._DETECT_TO_FILE.get(result)
+            #if result == self._WARE_DETECT_LAST:
+            #    self._WARE_DETECT_COUNT += 1
+            #    if self._WARE_DETECT_COUNT >= self._WARE_INFO_THRESHOLD:
+            #        filename = self._DETECT_TO_FILE.get(result)
+            #    else:
+            #        return None
+            #else:
+            #    self._WARE_DETECT_LAST = result
+            #    self._WARE_DETECT_COUNT = 0
+            #    return None
+        elif isinstance(result, WareSatus):
+            filename = self._STATUS_TO_FILE.get(result)
+            #if result == self._WARE_STATUS_LAST:
+            #    self._WARE_STATUS_COUNT += 1
+            #    if self._WARE_STATUS_COUNT >= self._WARE_INFO_THRESHOLD:
+            #        filename = self._STATUS_TO_FILE.get(result)
+            #    else:
+            #        return None
+            #else:
+            #    self._WARE_STATUS_LAST = result
+            #    self._WARE_STATUS_COUNT = 0
+            #    return None
+        else:
+            #self._WARE_DETECT_LAST = WareDetect.WARE_0
+            #self._WARE_DETECT_COUNT = 0
+            #self._WARE_STATUS_LAST = WareSatus.NORMAL
+            #self._WARE_STATUS_COUNT = 0
+            return None
+        if filename is None:
+            return None
+        return self._sound_dir / filename
+
+    def _play(self, result: WareDetect | WareSatus):
+        audio_path = self._resolve_path(result)
+        if audio_path is None or not audio_path.exists():
+            return
+        print(f"voice path: {audio_path} to play")
         backend, handler = self._backend
         if backend is None:
             return
@@ -96,26 +177,26 @@ class AudioPlayer:
             subprocess.run(["mpg123", "-q", str(audio_path)], check=False)
             return
 
-    def enqueue(self, audio_path: Path):
+    def enqueue(self, result: WareDetect | WareSatus):
         if self._backend[0] is None:
             return
-        if self._last_enqueued == audio_path:
+        if self._last_enqueued == result:
             return
-        self._last_enqueued = audio_path
+        self._last_enqueued = result
         try:
-            self._queue.put_nowait(audio_path)
+            self._queue.put_nowait(result)
         except queue.Full:
             try:
                 self._queue.get_nowait()
             except queue.Empty:
                 pass
-            self._queue.put_nowait(audio_path)
+            self._queue.put_nowait(result)
 
     def _worker(self):
         while True:
-            audio_path = self._queue.get()
+            result = self._queue.get()
             try:
-                self._play(audio_path)
+                self._play(result)
             finally:
                 self._queue.task_done()
 
@@ -287,24 +368,10 @@ def build_temporal_input(frames, detector, transform):
     return temporal_input, merged_bbox, kitchenware_count
 
 
-def get_kitchenware_voice(sound_dir, count):
+def count_to_ware_detect(count: int) -> WareDetect:
     if count <= 6:
-        return sound_dir / f"kitchenware_{count}.mp3"
-    return sound_dir / "kitchenware_x.mp3"
-
-
-def get_status_voice(sound_dir, status):
-    mapping = {
-        "boiling": "statues_boiling.mp3",
-        "normal": "statues_normal.mp3",
-        "on_fire": "statues_on-fire.mp3",
-        "smoking": "statues_smoking.mp3",
-    }
-    filename = mapping.get(status)
-    print("voice: {filename} to play")
-    if not filename:
-        return None
-    return sound_dir / filename
+        return WareDetect(count)
+    return WareDetect.WARE_X
 
 
 def run_live_monitoring(
@@ -330,13 +397,13 @@ def run_live_monitoring(
     detector.load_model()
 
     transform = build_transform()
-    idx_to_class = {0: 'boiling', 1: 'normal', 2: 'on_fire', 3: 'smoking'}
+    idx_to_status = {0: WareSatus.BOILING, 1: WareSatus.NORMAL, 2: WareSatus.ON_FIRE, 3: WareSatus.SMOKING}
 
     capture = open_camera(camera_index, capture_fps)
     if capture is None:
         raise RuntimeError("Failed to open camera")
 
-    audio_player = AudioPlayer()
+    audio_player = AudioPlayer(sound_dir)
     print(f"Audio backend selected: {audio_player._backend[0]}")
     last_kitchenware_count = None
 
@@ -360,18 +427,17 @@ def run_live_monitoring(
                 outputs = model(temporal_input)
                 probabilities = torch.softmax(outputs, dim=1)[0]
                 predicted_idx = torch.argmax(probabilities).item()
-                predicted_class = idx_to_class[predicted_idx]
+                predicted_status = idx_to_status[predicted_idx]
 
-            voice_to_play = None
+            result_to_play = None
             if last_kitchenware_count is None or kitchenware_count != last_kitchenware_count:
-                voice_to_play = get_kitchenware_voice(sound_dir, kitchenware_count)
+                result_to_play = count_to_ware_detect(kitchenware_count)
                 last_kitchenware_count = kitchenware_count
             else:
-                voice_to_play = get_status_voice(sound_dir, predicted_class)
+                result_to_play = predicted_status
 
-            if voice_to_play is not None and voice_to_play.exists():
-                print("voice path: {voice_to_play} to play")
-                audio_player.enqueue(voice_to_play)
+            if result_to_play is not None:
+                audio_player.enqueue(result_to_play)
 
             elapsed = time.perf_counter() - loop_start
             sleep_time = loop_interval - elapsed
